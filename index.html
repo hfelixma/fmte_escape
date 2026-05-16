@@ -54,7 +54,6 @@
         button { cursor: pointer; font-weight: bold; }
         .hidden { display: none !important; }
 
-        /* Ocultació del selector d'estils en el mode admin */
         #theme-select-container { display: none; }
         #theme-select-container.admin-visible { display: inline-block; }
 
@@ -107,6 +106,7 @@
         let touchCount = 0;
         let key6Count = 0;
         let lastTouchTime = 0;
+        let lastTapTime = 0; // Per controlar el doble toc tàctil
 
         const escapeMusic = new Audio('escaperoom.mp3');
         escapeMusic.loop = true;
@@ -117,6 +117,7 @@
         const startBtn = document.getElementById('start-btn');
         const minutesInput = document.getElementById('minutes-input');
         const setupPanel = document.getElementById('setup-panel');
+        const activePanel = document.getElementById('active-panel');
 
         function cleanText(text) {
             let t = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/'/g, " ").toUpperCase();
@@ -144,15 +145,24 @@
             }
         }
 
-        // --- SISTEMA HIDDEN ADMIN (CODIS DE DESBLOQUEIG DEL SELECTOR DE TEMES) ---
         function triggerAdminPanel() {
             themeContainer.classList.toggle('admin-visible');
         }
 
+        function showHUD() {
+            if (!isRunning || isPaused) return;
+            activePanel.classList.add('visible');
+            clearTimeout(hudTimeout);
+            hudTimeout = setTimeout(() => { if (isRunning && !isPaused) activePanel.classList.remove('visible'); }, 4000);
+        }
+
+        // --- ENTRADES I CONTROLS (RATOLÍ, TECLAT I TÀCTIL) ---
+        
+        // 1. Clic amb el ratolí (Detecta si és ordinador o emulador)
         window.addEventListener('click', function(e) {
-            // No comptar el clic si l'usuari interacciona amb els botons principals de joc
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
 
+            // Lògica interna d'administrador (6 clics)
             const now = Date.now();
             if (now - lastTouchTime > 3000) touchCount = 0;
             lastTouchTime = now;
@@ -160,16 +170,37 @@
             if (touchCount >= 6) {
                 triggerAdminPanel();
                 touchCount = 0;
+                return;
+            }
+
+            // Mostrar HUD amb un clic normal (només si no s'ha disparat com a esdeveniment tàctil)
+            if (e.pointerType !== 'touch') {
+                showHUD();
             }
         });
 
+        // 2. Doble toc exclusiu per a pantalles tàctils (iPad / Mòbil)
+        window.addEventListener('touchstart', function(e) {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+            
+            const now = Date.now();
+            const TIMESPAN = 300; // Temps màxim entre els dos tocs (300ms)
+            
+            if (now - lastTapTime < TIMESPAN) {
+                // S'ha detectat un doble toc ràpid
+                showHUD();
+            }
+            lastTapTime = now;
+        });
+
+        // 3. Teclat (Intro per al HUD i "666" per al mode admin)
         window.addEventListener('keydown', function(e) {
-            if (isRunning && !isPaused) {
-                document.getElementById('active-panel').classList.add('visible');
-                clearTimeout(hudTimeout);
-                hudTimeout = setTimeout(() => { if (isRunning && !isPaused) document.getElementById('active-panel').classList.remove('visible'); }, 4000);
+            // Tecla Intro per mostrar botons
+            if (e.key === 'Enter') {
+                showHUD();
             }
 
+            // Codi secret de gestió 666
             if (e.key === '6') {
                 key6Count++;
                 if (key6Count >= 3) {
@@ -204,8 +235,8 @@
             totalSeconds = timeRemaining;
             isRunning = true;
             
-            setupPanel.classList.add('hidden'); // S'amaga tot el panell en arrencar
-            document.getElementById('active-panel').classList.remove('hidden');
+            setupPanel.classList.add('hidden'); 
+            activePanel.classList.remove('hidden');
             if (body.classList.contains('theme-matrix')) document.getElementById('sub-timer').classList.remove('hidden');
             
             escapeMusic.play();
@@ -230,11 +261,19 @@
                     body.classList.add('alarm-active');
                     document.getElementById('timer').innerText = cleanText("GAmE OVEr");
                     document.getElementById('status-text').innerText = cleanText("SISTEmA FALLIT");
-                    document.getElementById('active-panel').classList.add('visible');
+                    activePanel.classList.add('visible');
                     
-                    const deathSound = new Audio('Death.mp3');
-                    deathSound.play();
-                    deathSound.onended = () => { escapeMusic.pause(); escapeMusic.currentTime = 0; };
+                    // LÒGICA DE SO ADAPTADA
+                    if (body.classList.contains('theme-lacasa')) {
+                        // A la Casa de Papel NO sona res, només s'atura la música
+                        escapeMusic.pause();
+                        escapeMusic.currentTime = 0;
+                    } else {
+                        // Als altres estils sí que sona el death.mp3
+                        const deathSound = new Audio('Death.mp3');
+                        deathSound.play();
+                        deathSound.onended = () => { escapeMusic.pause(); escapeMusic.currentTime = 0; };
+                    }
                     return;
                 }
                 timeRemaining--;
