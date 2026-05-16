@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Escape Room - Protocol Final</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@700&family=Stardos+Stencil:wght@700&display=swap" rel="stylesheet">
+    <style>
+        @font-face { font-family: 'BladeRunnerCaptura'; src: url('BLADRMF.TTF') format('truetype'); }
+        @font-face { font-family: 'MatrixLocal'; src: url('matrix.ttf') format('truetype'); }
+
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            height: 100vh; background-color: black; transition: background 0.5s ease;
+        }
+
+        canvas { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none; }
+        .container { z-index: 2; padding: 20px; text-align: center; display: flex; flex-direction: column; align-items: center; width: 90%; }
+
+        .hud-overlay { opacity: 0; pointer-events: none; transition: opacity 0.4s ease; }
+        .hud-overlay.visible { opacity: 1; pointer-events: auto; }
+
+        #timer { line-height: 1; margin-bottom: 20px; transition: all 0.3s; z-index: 5; }
+        #sub-timer { font-weight: bold; margin-bottom: 15px; z-index: 5; }
+
+        /* --- BLADE RUNNER --- */
+        body.theme-cyberpunk { color: #ff0055; font-family: 'BladeRunnerCaptura', sans-serif !important; }
+        body.theme-cyberpunk #timer { font-size: clamp(3.5rem, 15vw, 8.5rem); color: #00f3ff; text-shadow: 0 0 25px #00f3ff; transform: scaleX(1.2); }
+        body.theme-cyberpunk #sub-timer { display: none !important; }
+        body.theme-cyberpunk * { text-transform: none !important; }
+
+        /* --- MATRIX --- */
+        body.theme-matrix { color: #00FF00; font-family: 'MatrixLocal', monospace !important; }
+        body.theme-matrix #timer { font-size: clamp(4rem, 15vw, 10rem); text-shadow: 0 0 20px #00FF00; }
+        body.theme-matrix #sub-timer { font-family: 'MatrixLocal', monospace !important; font-size: 1.8rem; display: block; color: #00FF00; }
+        body.theme-matrix #sub-timer span { font-family: 'Roboto Mono', monospace !important; margin-left: 10px; }
+        body.theme-matrix #minutes-input { font-family: 'Roboto Mono', monospace !important; color: #00FF00 !important; border: 2px solid #00FF00 !important; }
+
+        /* --- LA CASA DE PAPEL --- */
+        body.theme-lacasa { color: #bc0000; font-family: 'Stardos Stencil', cursive !important; }
+        body.theme-lacasa #timer { font-size: clamp(4rem, 15vw, 10rem); color: #bc0000; text-shadow: 3px 3px 0px #000; }
+        body.theme-lacasa #sub-timer { display: none !important; }
+        body.theme-lacasa #status-text { color: #bc0000; background: transparent; border: none; padding: 15px; font-size: 1.8rem; }
+        body.theme-lacasa .progress-line { background: #ffffff !important; box-shadow: 0 0 15px #ffffff; }
+
+        .progress-line { width: 80%; height: 8px; margin-bottom: 30px; background: currentColor; }
+        #status-text { font-size: clamp(1rem, 3.5vw, 1.8rem); min-height: 80px; }
+
+        /* Panell ocult per defecte */
+        .controls { z-index: 10; display: flex; flex-direction: column; gap: 15px; width: 100%; }
+        .row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+
+        input, select, button { background: #000; border: 2px solid currentColor; color: inherit; padding: 10px 18px; font-size: 1.1rem; font-family: inherit; border-radius: 6px; }
+        button { cursor: pointer; font-weight: bold; }
+        .hidden { display: none !important; }
+
+        @keyframes alarm { 0% { background-color: #000; } 50% { background-color: #400; } }
+        .alarm-active { animation: alarm 0.2s infinite !important; }
+    </style>
+</head>
+<body class="theme-lacasa">
+
+    <canvas id="background-canvas"></canvas>
+
+    <div class="container">
+        <div id="timer">10:00</div>
+        <div id="sub-timer" class="hidden">COUNTDOWN: <span id="sub-timer-digits">10:00</span></div>
+        <div class="progress-line"></div>
+        <div id="status-text">EL PLA ESTA EN MARXA</div>
+        
+        <div id="setup-panel" class="controls hidden">
+            <div class="row">
+                <select id="theme-select">
+                    <option value="lacasa">La Casa de Papel</option>
+                    <option value="cyberpunk">Blade Runner</option>
+                    <option value="matrix">Matrix</option>
+                </select>
+                <input type="number" id="minutes-input" value="10" min="1" style="width: 80px;">
+                <button id="start-btn">INICIAR</button>
+            </div>
+        </div>
+
+        <div id="active-panel" class="row hud-overlay">
+            <button id="pause-btn">PAUSAR</button>
+            <button id="reset-btn">REINICIAR</button>
+        </div>
+    </div>
+
+    <script>
+        const rawMessages = [
+            "EL TEMPS VOLA I VOSALTRES NO", "ERROr EN EL CODI", "SOU DADES rESIDUALS",
+            "ES COmO TENEr UN TIO EN GrANA, QUE NI TIENES TIO, NI TIENES NA",
+            "SOIS mAS LENTOS QUE EL CABALLO DEL mALO", "LA VOSTrA LOGICA FA AIGUES",
+            "DESCONFIEU, UN DE VOSALTrES ES UN INFILTrAT", "COmENCA EL mATrIArCAT", "bELLA CIAO CIAO CIAO",
+            "ESTO VA ACABAr COmO EL rOSArIO DE LA AUrOrA", "NO SEAIS COmO JUAN PALOmO, YO mE LO GUISO, YO mE LO COmO"
+        ];
+
+        let timeRemaining, totalSeconds, countdownInterval, messageInterval, hudTimeout;
+        let isPaused = false, isRunning = false;
+        
+        // Variables per als codis secrets de seguretat
+        let touchCount = 0;
+        let key6Count = 0;
+        let lastTouchTime = 0;
+
+        const escapeMusic = new Audio('escaperoom.mp3');
+        escapeMusic.loop = true;
+
+        const body = document.body;
+        const themeSelect = document.getElementById('theme-select');
+        const startBtn = document.getElementById('start-btn');
+        const setupPanel = document.getElementById('setup-panel');
+
+        function cleanText(text) {
+            let t = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/'/g, " ").toUpperCase();
+            if (body.classList.contains('theme-cyberpunk')) {
+                return t.replace(/B/g, 'b').replace(/R/g, 'r').replace(/L/g, 'l');
+            }
+            return t;
+        }
+
+        function updateUI() {
+            startBtn.innerText = cleanText("INICIAr");
+            document.getElementById('pause-btn').innerText = cleanText(isPaused ? "rEPrENDrE" : "PAUSAr");
+            document.getElementById('reset-btn').innerText = cleanText("rEINICIAr");
+            
+            themeSelect.options[0].text = cleanText("LA CASA DE PAPEL");
+            themeSelect.options[1].text = cleanText("bLADE rUNNEr");
+            themeSelect.options[2].text = cleanText("mATrIX");
+
+            if (!isRunning) {
+                let msg = "EL PLA ESTA EN mArXA";
+                if (body.classList.contains('theme-matrix')) msg = "ACCES CODI";
+                if (body.classList.contains('theme-cyberpunk')) msg = "SISTEmA ONLINE";
+                document.getElementById('status-text').innerText = cleanText(msg);
+                updateDisplay(document.getElementById('minutes-input').value * 60);
+            }
+        }
+
+        // --- SISTEMA HIDDEN ADMIN (CODIS DE DESBLOQUEIG) ---
+        function triggerAdminPanel() {
+            setupPanel.classList.toggle('hidden');
+        }
+
+        // 1. Clic / Toc tàctil (6 vegades en menys de 3 segons)
+        window.addEventListener('click', function() {
+            const now = Date.now();
+            if (now - lastTouchTime > 3000) touchCount = 0; // Caduca als 3 segons
+            lastTouchTime = now;
+            touchCount++;
+            if (touchCount >= 6) {
+                triggerAdminPanel();
+                touchCount = 0;
+            }
+        });
+
+        // 2. Teclat (Prem 3 cops la tecla 6)
+        window.addEventListener('keydown', function(e) {
+            // HUD interactiu normal
+            if (isRunning && !isPaused) {
+                document.getElementById('active-panel').classList.add('visible');
+                clearTimeout(hudTimeout);
+                hudTimeout = setTimeout(() => { if (isRunning && !isPaused) document.getElementById('active-panel').classList.remove('visible'); }, 4000);
+            }
+
+            // Comprovació codi secret "666"
+            if (e.key === '6') {
+                key6Count++;
+                if (key6Count >= 3) {
+                    triggerAdminPanel();
+                    key6Count = 0;
+                }
+            } else {
+                key6Count = 0; // Si prem una altra tecla, es reinicia el codi
+            }
+        });
+
+        function updateDisplay(s) {
+            const m = Math.floor(s / 60);
+            const sec = s % 60;
+            const timeStr = `${m}:${sec < 10 ? '0' + sec : sec}`;
+            const timerDiv = document.getElementById('timer');
+            const subDigits = document.getElementById('sub-timer-digits');
+
+            if (isRunning && body.classList.contains('theme-matrix')) {
+                const matrixChars = "ｱｲｳｴｵｶｷｸｹｺ0123456789";
+                timerDiv.innerText = timeStr.replace(/[0-9:]/g, () => matrixChars[Math.floor(Math.random()*matrixChars.length)]);
+                subDigits.innerText = timeStr;
+            } else {
+                timerDiv.innerText = timeStr;
+                subDigits.innerText = timeStr;
+            }
+        }
+
+        startBtn.addEventListener('click', function() {
+            if (isRunning) return;
+            timeRemaining = document.getElementById('minutes-input').value * 60;
+            totalSeconds = timeRemaining;
+            isRunning = true;
+            
+            setupPanel.classList.add('hidden'); // Es torna a amagar l'ajust
+            document.getElementById('active-panel').classList.remove('hidden');
+            if (body.classList.contains('theme-matrix')) document.getElementById('sub-timer').classList.remove('hidden');
+            
+            escapeMusic.play();
+            runTicker();
+
+            // BLOQUEIG DE FRASES PER A LA CASA DE PAPEL
+            if (!body.classList.contains('theme-lacasa')) {
+                messageInterval = setInterval(() => {
+                    const msg = rawMessages[Math.floor(Math.random()*rawMessages.length)];
+                    document.getElementById('status-text').innerText = cleanText(msg);
+                }, 7000);
+            } else {
+                document.getElementById('status-text').innerText = cleanText("EL PLA ESTA EN mArXA");
+            }
+        });
+
+        function runTicker() {
+            clearInterval(countdownInterval);
+            countdownInterval = setInterval(() => {
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    clearInterval(messageInterval);
+                    body.classList.add('alarm-active');
+                    document.getElementById('timer').innerText = cleanText("GAmE OVEr");
+                    document.getElementById('status-text').innerText = cleanText("SISTEmA FALLIT");
+                    document.getElementById('active-panel').classList.add('visible');
+                    
+                    const deathSound = new Audio('Death.mp3');
+                    deathSound.play();
+                    deathSound.onended = () => { escapeMusic.pause(); escapeMusic.currentTime = 0; };
+                    return;
+                }
+                timeRemaining--;
+                updateDisplay(timeRemaining);
+                if (timeRemaining <= (totalSeconds * 0.05)) escapeMusic.playbackRate = 1.5;
+            }, 1000);
+        }
+
+        document.getElementById('pause-btn').onclick = function() {
+            isPaused = !isPaused;
+            if (isPaused) { clearInterval(countdownInterval); escapeMusic.pause(); }
+            else { runTicker(); escapeMusic.play(); }
+            updateUI();
+        };
+
+        document.getElementById('reset-btn').onclick = function() { location.reload(); };
+        themeSelect.onchange = function() { body.className = 'theme-' + this.value; updateUI(); };
+
+        const canvas = document.getElementById('background-canvas');
+        const ctx = canvas.getContext('2d');
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.onresize = resize;
+        resize();
+
+        const drops = Array(Math.floor(canvas.width / 20)).fill(1);
+        function draw() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (body.classList.contains('theme-matrix')) {
+                ctx.fillStyle = '#0F0'; ctx.font = '20px MatrixLocal';
+                drops.forEach((y, i) => {
+                    ctx.fillText(String.fromCharCode(0x30A0 + Math.random() * 96), i * 20, y * 20);
+                    if (y * 20 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                    drops[i]++;
+                });
+            } else if (body.classList.contains('theme-lacasa')) {
+                drops.forEach((y, i) => {
+                    const isWhite = i % 2 === 0;
+                    ctx.fillStyle = isWhite ? '#ffffff' : '#bc0000';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.fillText(isWhite ? "€" : "$", i * 30, y * 20);
+                    if (y * 20 > canvas.height && Math.random() > 0.96) drops[i] = 0;
+                    drops[i] += 1.5;
+                });
+            } else {
+                drops.forEach((y, i) => {
+                    ctx.beginPath(); ctx.strokeStyle = i % 2 === 0 ? '#00f3ff' : '#ff0055';
+                    ctx.moveTo(i * 30, y * 20); ctx.lineTo(i * 30, (y * 20) + 20); ctx.stroke();
+                    if (y * 20 > canvas.height && Math.random() > 0.95) drops[i] = 0;
+                    drops[i] += 2;
+                });
+            }
+        }
+        setInterval(draw, 33);
+        updateUI();
+    </script>
+</body>
+</html>
